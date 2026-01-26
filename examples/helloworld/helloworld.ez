@@ -1,0 +1,18 @@
+/*
+Multiline
+comment
+
+author : Prakash Niroula
+*/
+
+
+fn void main() {
+  
+  // hello this is comment
+  const x = "Hello World";
+  let n = 12.2;
+
+  // suppose print
+  print("string:", x);
+  print("num:", n);
+}
