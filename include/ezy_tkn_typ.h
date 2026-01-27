@@ -73,13 +73,12 @@ enum ezy_op_typ
   ezy_op_bw_xor_eq,
 
   /* Others */
-  ezy_op_qn,
+  ezy_op_qn, // '?'
   ezy_op_dot,
 };
 
 enum ezy_tkn_typ
 {
-  /* Basic */
   ezy_tkn_dummy = -2,
   ezy_tkn_eof = -1,
   ezy_tkn_invalid = 0,

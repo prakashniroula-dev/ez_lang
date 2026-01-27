@@ -4,11 +4,10 @@
 #include <ezy_parser_arena.h>
 #include <string.h>
 
-static struct ezyparse_error
+struct ezyparse_error
 {
   const char *msg;
   ezy_tkn_t last_tkn;
-  size_t tkn_consumed;
 };
 
 #define ezyparse_typelist(...)       \
@@ -45,7 +44,7 @@ static inline bool ezyparse_match_oneof(ezy_tkn_t tkn, const enum ezy_tkn_typ ty
 static struct ezyparse_error ezyparse_parse_expression(ezy_ast_node_t *dest)
 {
   ezy_tkn_t tkn = tok(0);
-  struct ezyparse_error err = {NULL, 0, 0};
+  struct ezyparse_error err = {.last_tkn = tkn, .msg = NULL};
   if (tkn.type == ezy_tkn_eof)
   {
     return err;
@@ -56,7 +55,7 @@ static struct ezyparse_error ezyparse_parse_expression(ezy_ast_node_t *dest)
 static struct ezyparse_error ezyparse_parse_statements(ezy_ast_node_t *dest)
 {
   ezy_tkn_t tkn = tok(0);
-  struct ezyparse_error err = {NULL, 0, 0, 0};
+  struct ezyparse_error err = {.last_tkn = tkn, .msg = NULL};
   if (tkn.type == ezy_tkn_eof)
   {
     return err;
@@ -67,10 +66,10 @@ static struct ezyparse_error ezyparse_parse_statements(ezy_ast_node_t *dest)
 static struct ezyparse_error ezyparse_parse_datatype(struct ezy_ast_datatype_t *dest)
 {
   ezy_tkn_t tkn = tok(0);
-  struct ezyparse_error err = {NULL, 0, 0};
+  struct ezyparse_error err = {.last_tkn = tkn, .msg = NULL};
   if (tkn.type != ezy_tkn_identifier)
   {
-    return (struct ezyparse_error){"Expected datatype identifier", tkn, 0};
+    return (struct ezyparse_error){.msg = "Expected datatype identifier", .last_tkn = tkn};
   }
 
   // datatype table: longer datatype names first
@@ -120,7 +119,7 @@ static struct ezyparse_error ezyparse_parse_datatype(struct ezy_ast_datatype_t *
 
   if (!matched)
   {
-    return (struct ezyparse_error){"Unrecognized datatype identifier", tkn, 0};
+    return (struct ezyparse_error){.msg = "Unrecognized datatype identifier", .last_tkn = tkn};
   }
 
   tkn = tok(0);
@@ -136,7 +135,12 @@ static struct ezyparse_error ezyparse_parse_datatype(struct ezy_ast_datatype_t *
     consume(1); // consume '*'
   }
 
-  return (struct ezyparse_error){NULL, 0, 1};
+  return (struct ezyparse_error){.msg = NULL, .last_tkn = tkn};
+}
+
+static struct ezyparse_error ezyparse_parse_parameter_list(/* to do */)
+{
+  // To do : parse parameter list
 }
 
 static struct ezyparse_error ezyparse_parse_function(ezy_ast_node_t *dest)
@@ -146,7 +150,7 @@ static struct ezyparse_error ezyparse_parse_function(ezy_ast_node_t *dest)
 
   if (tkn.type != ezy_tkn_keyword || tkn.data.t_keyword != ezy_kw_fn)
   {
-    return (struct ezyparse_error){"Expected 'fn' keyword", tkn, 0};
+    return (struct ezyparse_error){.msg = "Expected 'fn' keyword", .last_tkn = tkn};
   }
   ezy_ast_node_t *func_node = ezyparse_arena_alloc(sizeof(ezy_ast_node_t));
   struct ezy_ast_function_t *func_data = ezyparse_arena_alloc(sizeof(struct ezy_ast_function_t));
@@ -163,38 +167,44 @@ static struct ezyparse_error ezyparse_parse_function(ezy_ast_node_t *dest)
 
   tkn = tok(0);
   if (!ezyparse_expect(tkn, ezy_tkn_identifier))
-    return (struct ezyparse_error){"Expected function name / type identifier", tkn, 0};
+    return (struct ezyparse_error){.msg = "Expected function name / type identifier", .last_tkn = tkn};
 
   func_data->name = tkn.data.t_identifier;
   consume(1); // consume function name
 
   tkn = tok(0);
   if (!ezyparse_expect(tkn, ezy_tkn_operator) || tkn.data.t_operator != ezy_op_brac_small_l)
-    return (struct ezyparse_error){"Expected '(' after function name", tkn, 0};
+    return (struct ezyparse_error){.msg = "Expected '(' after function name", .last_tkn = tkn};
 
   consume(1); // consume '('
 
   tkn = tok(0);
   size_t param_count = 0;
+  size_t alloc_count = 0;
 
-  func_data->param_names = ezyparse_arena_alloc(sizeof(ezy_cstr_t) * 16); // max 16 params initially
-  func_data->param_typlist = ezyparse_arena_alloc(sizeof(struct ezy_ast_datatype_t) * 16);
-
-  size_t alloc_count = 16;
+  if ( tkn.type == ezy_tkn_operator && tkn.data.t_operator == ezy_op_brac_small_r)
+  {
+    func_data->param_count = 0;
+    func_data->params = NULL;
+  } else {
+    alloc_count = 16; // max 16 params to start with
+    func_data->params = ezyparse_arena_alloc(sizeof(struct ezy_ast_args_t) * alloc_count);
+  }
 
   while (!ezyparse_match(tkn, ezy_tkn_operator) || tkn.data.t_operator != ezy_op_brac_small_r)
   {
-    if ( param_count > 0 )
+    if (param_count > 0)
     {
       ezyparse_expect(tkn, ezy_tkn_operator);
       if (tkn.data.t_operator != ezy_op_comma)
       {
-        return (struct ezyparse_error){"Expected ',' between parameters", tkn, 0};
+        return (struct ezyparse_error){.msg = "Expected ',' between parameters", .last_tkn = tkn};
       }
       consume(1); // consume ','
     }
 
-    struct ezyparse_error err = ezyparse_parse_datatype(&func_data->param_typlist[param_count]);
+    struct ezyparse_error err = ezyparse_parse_datatype(&func_data->params[param_count].typ);
+
     if (err.msg != NULL)
     {
       return err;
@@ -202,27 +212,22 @@ static struct ezyparse_error ezyparse_parse_function(ezy_ast_node_t *dest)
 
     tkn = tok(0);
     if (!ezyparse_expect(tkn, ezy_tkn_identifier))
-      return (struct ezyparse_error){"Expected parameter name identifier", tkn, 0};
+      return (struct ezyparse_error){.msg = "Expected parameter name identifier", .last_tkn = tkn};
 
     consume(1); // consume parameter name
 
     if (param_count + 1 >= alloc_count)
     {
-      void* old_param_names = func_data->param_names;
-      void* old_param_typlist = func_data->param_typlist;
-      
-      ezyparse_arena_backtrack(sizeof(struct ezy_ast_datatype_t) * alloc_count, old_param_typlist);
-      ezyparse_arena_backtrack(sizeof(ezy_cstr_t) * alloc_count, old_param_names);
+      void *old_params = func_data->params;
 
+      ezyparse_arena_backtrack(sizeof(struct ezy_ast_args_t) * alloc_count, old_params);
       alloc_count *= 2;
 
-      func_data->param_names = ezyparse_arena_alloc(sizeof(ezy_cstr_t) * alloc_count);
-      func_data->param_typlist = ezyparse_arena_alloc(sizeof(struct ezy_ast_datatype_t) * alloc_count);
-
-      memmove(func_data->param_names, old_param_names, sizeof(ezy_cstr_t) * param_count);
-      memmove(func_data->param_typlist, old_param_typlist, sizeof(struct ezy_ast_datatype_t) * param_count);
+      func_data->params = ezyparse_arena_alloc(sizeof(struct ezy_ast_args_t) * alloc_count);
+      memmove(func_data->params, old_params, sizeof(struct ezy_ast_args_t) * param_count);
     }
-    func_data->param_names[param_count] = tkn.data.t_identifier;
+
+    func_data->params[param_count].name = tkn.data.t_identifier;
     param_count++;
 
     tkn = tok(0);
@@ -231,26 +236,37 @@ static struct ezyparse_error ezyparse_parse_function(ezy_ast_node_t *dest)
   ezyparse_expect(tkn, ezy_tkn_operator);
   if (tkn.data.t_operator != ezy_op_brac_small_r)
   {
-    return (struct ezyparse_error){"Expected ')' at end of parameter list", tkn, 0};
+    return (struct ezyparse_error){.msg = "Expected ')' at end of parameter list", .last_tkn = tkn};
   }
   consume(1); // consume ')'
 
   func_data->param_count = param_count;
 
-  // clear unused allocated param space in arena
-  void* old_param_names = func_data->param_names;
-  void* old_param_typlist = func_data->param_typlist;
+  if (alloc_count > param_count)
+  {
+    // clear unused allocated param space in arena
+    void *old_params = func_data->params;
+    ezyparse_arena_backtrack(sizeof(struct ezy_ast_args_t) * alloc_count, old_params);
+    func_data->params = ezyparse_arena_alloc(sizeof(struct ezy_ast_args_t) * param_count);
+    memmove(func_data->params, old_params, sizeof(struct ezy_ast_args_t) * param_count);
+  }
 
-  ezyparse_arena_backtrack(sizeof(struct ezy_ast_datatype_t) * alloc_count, old_param_typlist);
-  ezyparse_arena_backtrack(sizeof(ezy_cstr_t) * alloc_count, old_param_names);
-
-  func_data->param_names = ezyparse_arena_alloc(sizeof(ezy_cstr_t) * param_count);
-  func_data->param_typlist = ezyparse_arena_alloc(sizeof(struct ezy_ast_datatype_t) * param_count);
-
-  memmove(func_data->param_names, old_param_names, sizeof(ezy_cstr_t) * param_count);
-  memmove(func_data->param_typlist, old_param_typlist, sizeof(struct ezy_ast_datatype_t) * param_count);
-
-  // To do : parse function body
+  tkn = tok(0);
+  if (!ezyparse_expect(tkn, ezy_tkn_operator) || tkn.data.t_operator != ezy_op_brac_curly_l)
+  {
+    return (struct ezyparse_error){.msg = "Expected '{' at start of function body", .last_tkn = tkn};
+  }
+  consume(1); // consume '{'
+  while (tkn.type != ezy_tkn_operator || tkn.data.t_operator != ezy_op_brac_curly_r)
+  {
+    struct ezyparse_error err = ezyparse_parse_statements(func_data->body);
+    if (err.msg != NULL)
+    {
+      return err;
+    }
+    tkn = tok(0);
+  }
+  consume(1); // consume '}'
 }
 
 static struct ezyparse_error ezyparse_parse_struct(ezy_ast_node_t *dest)
@@ -259,7 +275,7 @@ static struct ezyparse_error ezyparse_parse_struct(ezy_ast_node_t *dest)
   struct ezyparse_error err = {NULL, 0, 0};
   if (tkn.type != ezy_tkn_keyword || tkn.data.t_keyword != ezy_kw_struct)
   {
-    return (struct ezyparse_error){"Expected 'struct' keyword", tkn, 0};
+    return (struct ezyparse_error){.msg = "Expected 'struct' keyword", .last_tkn = tkn};
   }
   // To do : parse structs
 }
@@ -270,7 +286,7 @@ static struct ezyparse_error ezyparse_parse_union(ezy_ast_node_t *dest)
   struct ezyparse_error err = {NULL, 0, 0};
   if (tkn.type != ezy_tkn_keyword || tkn.data.t_keyword != ezy_kw_union)
   {
-    return (struct ezyparse_error){"Expected 'union' keyword", tkn, 0};
+    return (struct ezyparse_error){.msg = "Expected 'union' keyword", .last_tkn = tkn};
   }
   // To do : parse unions
 }
@@ -281,7 +297,7 @@ static struct ezyparse_error ezyparse_parse_global_decl(ezy_ast_node_t *dest)
   struct ezyparse_error err = {NULL, 0, 0};
   if (tkn.type != ezy_tkn_keyword || (tkn.data.t_keyword != ezy_kw_let && tkn.data.t_keyword != ezy_kw_const))
   {
-    return (struct ezyparse_error){"Expected 'let' or 'const' keyword", tkn, 0};
+    return (struct ezyparse_error){.msg = "Expected 'let' or 'const' keyword", .last_tkn = tkn};
   }
   // To do : parse global declarations
 }
@@ -292,7 +308,7 @@ static struct ezyparse_error ezyparse_parse_program(ezy_ast_node_t *dest)
 
   if (tkn.type != ezy_tkn_keyword)
   {
-    return (struct ezyparse_error){"Unexpected token, expected keyword", tkn, 0};
+    return (struct ezyparse_error){.msg = "Unexpected token, expected keyword", .last_tkn = tkn};
   }
 
   switch (tkn.data.t_keyword)
@@ -307,7 +323,7 @@ static struct ezyparse_error ezyparse_parse_program(ezy_ast_node_t *dest)
   case ezy_kw_const:
     return ezyparse_parse_global_decl(dest);
   default:
-    return (struct ezyparse_error){"Unexpected keyword", tkn, 0};
+    return (struct ezyparse_error){.msg = "Unexpected keyword", .last_tkn = tkn};
   }
 }
 
