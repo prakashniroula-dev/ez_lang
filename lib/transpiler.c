@@ -466,6 +466,13 @@ bool ezytranspile_call(ezy_ast_node_t *node, ezy_multistr_t **out)
       switch (call_data->args[i].type)
       {
         case ezy_ast_node_literal:
+          struct ezy_ast_datatype_t dt = { .typ = call_data->args[i].data.n_literal.typ };
+          // explicitly typecast non-string/char/bool literals to ensure correct printf formatting
+          if ( dt.typ != ezy_ast_dt_string && dt.typ != ezy_ast_dt_char && dt.typ != ezy_ast_dt_bool ) {
+            ezyt_append(out, "(");
+            ezytranspile_datatype(&dt, out);
+            ezyt_append(out, ")");
+          }
           ezytranspile_literal(&call_data->args[i], out);
           break;
         case ezy_ast_node_variable:

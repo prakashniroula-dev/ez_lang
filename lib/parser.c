@@ -316,7 +316,11 @@ static ezy_ast_node_t* ezyparse_parse_pratt_prefix()
   if ( tkn.type == ezy_tkn_int64 ) {
     ezy_ast_node_t *lit_node = ezyparse_arena_alloc(sizeof(ezy_ast_node_t));
     lit_node->type = ezy_ast_node_literal;
-    lit_node->data.n_literal.typ = ezy_ast_dt_int64;
+
+    uint64_t v = tkn.data.t_int64 < 0 ? -(uint64_t)tkn.data.t_int64 : (uint64_t)tkn.data.t_int64;
+    enum ezy_ast_datatype_typ typ = v > INT32_MAX ? ezy_ast_dt_int64 : ezy_ast_dt_int32;
+
+    lit_node->data.n_literal.typ = typ;
     lit_node->data.n_literal.value.t_int64 = tkn.data.t_int64;
     consume(1); // consume literal token
     return lit_node;
@@ -324,8 +328,12 @@ static ezy_ast_node_t* ezyparse_parse_pratt_prefix()
 
   if ( tkn.type == ezy_tkn_uint64 ) {
     ezy_ast_node_t *lit_node = ezyparse_arena_alloc(sizeof(ezy_ast_node_t));
+
+    uint64_t v = tkn.data.t_uint64;
+    enum ezy_ast_datatype_typ typ = v > UINT32_MAX ? ezy_ast_dt_uint64 : ezy_ast_dt_uint32;
+
     lit_node->type = ezy_ast_node_literal;
-    lit_node->data.n_literal.typ = ezy_ast_dt_uint64;
+    lit_node->data.n_literal.typ = typ;
     lit_node->data.n_literal.value.t_uint64 = tkn.data.t_uint64;
     consume(1); // consume literal token
     return lit_node;

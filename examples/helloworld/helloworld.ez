@@ -12,6 +12,6 @@ fn void main(float a, int void) {
   let int n = 8 + 4 / -6 * pow(2, 4);
 
   // suppose print
-  print("string", 12.23, 345);
-  print(12.2);
+  print("string", 12.23, 9816065131);
+  print(-123);
 }
