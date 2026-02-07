@@ -34,17 +34,18 @@ void* ezyparse_arena_alloc(size_t size)
   return ptr;
 }
 
-void ezyparse_arena_backtrack(size_t size, void* final_ptr)
+bool ezyparse_arena_backtrack(size_t size, void* final_ptr)
 {
   struct ezyparse_arena* arena = &arena_head;
   while ( arena != NULL )
   {
     if ((uint8_t*)final_ptr + size == (uint8_t*)arena->mainbuf + arena->used ) {
       arena->used -= size;
-      return;
+      return true;
     }
     arena = arena->next;
   }
+  return false;
 }
 
 /* Reset parser arena */

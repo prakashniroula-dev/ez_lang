@@ -242,7 +242,6 @@ ezy_tkn_t ezylex_identifier_or_kw(const char **ptr)
       {"struct", ezy_kw_struct},
       {"const", ezy_kw_const},
       {"union", ezy_kw_union},
-      {"void", ezy_kw_void},
       {"type", ezy_kw_type},
       {"let", ezy_kw_let},
       {"fn", ezy_kw_fn},

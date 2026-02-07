@@ -6,13 +6,13 @@ author : Prakash Niroula
 */
 
 
-fn void main() {
-  
+fn void main(float a, int void) {
   // hello this is comment
-  const x = "Hello World";
-  let n = 12.2;
+  const string x = "Hello World";
+  let int n = 12.2;
 
   // suppose print
-  print("string:", x);
-  print("num:", n);
+  print("string", 12.23, 345);
+  print("string2");
+  print(12.2);
 }

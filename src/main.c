@@ -1,6 +1,78 @@
 #include <ezy_lexer.h>
 #include <stdlib.h>
 #include <ezy_log.h>
+#include <ezy_parser.h>
+#include <ezy_parser_arena.h>
+#include <ezy_transpile_c.h>
+
+void print_ast_node(ezy_ast_node_t* node, int indent) {
+  for (int i = 0; i < indent * 2; i++) {
+    ezy_log_raw("  ");
+  }
+  switch (node->type) {
+    case ezy_ast_node_variable:
+      ezy_log_raw("Variable(name: %.*s, type: %d", node->data.n_variable.name.len, node->data.n_variable.name.ptr, node->data.n_variable.typ.typ);
+      if (node->data.n_variable.value) {
+        ezy_log_raw(", value: \n");
+        print_ast_node(node->data.n_variable.value, indent + 1);
+        for (int i = 0; i < indent * 2; i++) {
+          ezy_log_raw("  ");
+        }
+        ezy_log_raw(")\n");
+      } else {
+        ezy_log_raw(", value: NULL)\n");
+      }
+      break;
+    case ezy_ast_node_literal:
+      ezy_log_raw("Literal(");
+      switch (node->data.n_literal.typ) {
+        case ezy_ast_dt_int64:
+          ezy_log_raw("int64: %lld", node->data.n_literal.value.t_int64);
+          break;
+        case ezy_ast_dt_string:
+          ezy_log_raw("string: \"%.*s\"", node->data.n_literal.value.t_string.len, node->data.n_literal.value.t_string.ptr);
+          break;
+        case ezy_ast_dt_float64:
+          ezy_log_raw("float64: %g", node->data.n_literal.value.t_float64);
+          break;
+        default:
+          ezy_log_raw("other type=%d", node->data.n_literal.typ);
+          break;
+      }
+      ezy_log_raw(")\n");
+      break;
+    case ezy_ast_node_variable_decl:
+      ezy_log_raw("DeclVariable(isConst: %s, type: %d, value: \n", node->data.n_variable.typ.is_const ? "true" : "false", node->data.n_variable.typ.typ);
+      print_ast_node(node->data.n_variable.value, indent + 1);
+      break;
+    case ezy_ast_node_function:
+      ezy_log_raw("Function(");
+      ezy_log_raw("name: %.*s, return_type: %d, params: ", node->data.n_function->name.len, node->data.n_function->name.ptr, node->data.n_function->return_typ.typ);
+      for (int i = 0; i < node->data.n_function->param_count; i++) {
+        ezy_log_raw("%d:", node->data.n_function->params[i].typ.typ);
+        ezy_log_raw("%.*s ", node->data.n_function->params[i].name.len, node->data.n_function->params[i].name.ptr);
+      }
+      ezy_log_raw("):\n");
+      print_ast_node(node->data.n_function->body, indent + 1);
+      break;
+    case ezy_ast_node_call:
+      ezy_log_raw("FunctionCall(name: %.*s, args: \n", node->data.n_call->func_name.len, node->data.n_call->func_name.ptr);
+      for (size_t i = 0; i < node->data.n_call->arg_count; i++) {
+        print_ast_node(&node->data.n_call->args[i], indent + 1);
+      }
+      for (int i = 0; i < indent * 2; i++) {
+        ezy_log_raw("  ");
+      }
+      ezy_log_raw(")\n");
+      break;
+    default:
+      ezy_log("Other Node Type: %d\n", node->type);
+      break;
+  }
+  if (node->next) {
+    print_ast_node(node->next, indent);
+  }
+}
 
 int main(int argc, const char** argv) {
   ezy_log("start of program");
@@ -27,51 +99,19 @@ int main(int argc, const char** argv) {
   buffer[fsize] = '\0';
   fclose(f);
 
-  ezylex_start(buffer);
-  ezy_tkn_t tkn;
-  do {
-    tkn = ezylex_peek_tkn(0);
-    switch ( tkn.type ) {
-      case ezy_tkn_eof:
-        printf("\nToken: EOF");
-        break;
-      case ezy_tkn_invalid:
-        printf("\nToken: INVALID");
-        break;
-      case ezy_tkn_int64:
-        printf("\nToken: INT64 (%lld)", tkn.data.t_int64);
-        break;
-      case ezy_tkn_uint64:
-        printf("\nToken: UINT64 (%llu)", tkn.data.t_uint64);
-        break;
-      case ezy_tkn_float64:
-        printf("\nToken: FLOAT64 (%f)", tkn.data.t_float64);
-        break;
-      case ezy_tkn_char:
-        printf("\nToken: CHAR ('%c')", tkn.data.t_char);
-        break;
-      case ezy_tkn_string:
-        printf("\nToken: STRING (\"%.*s\")", (int)tkn.data.t_string.len, tkn.data.t_string.ptr);
-        break;
-      case ezy_tkn_identifier:
-        printf("\nToken: IDENTIFIER (\"%.*s\")", (int)tkn.data.t_identifier.len, tkn.data.t_identifier.ptr);
-        break;
-      case ezy_tkn_keyword:
-        printf("\nToken: KEYWORD (%d)", tkn.data.t_keyword);
-        break;
-      case ezy_tkn_operator:
-        printf("\nToken: OPERATOR (%d)", tkn.data.t_operator);
-        break;
-      case ezy_tkn_dummy:
-        // skip
-        break;
-      default:
-        printf("\nToken: UNKNOWN TYPE (%d)", tkn.type);
-        break;
-    }
-    ezylex_consume_tkn(1);
-  } while ( tkn.type != ezy_tkn_eof );
+  ezy_log("file loaded: %s", filename);
+  // now to test the parser...
+  ezy_log("parsing...");
+  ezy_ast_node_t* ast_root = ezyparse_parse(buffer);
 
+  ezy_log("parsed\n");
+  print_ast_node(ast_root, 0);
+
+  ezy_log("transpiling to C...");
+  ezy_cstr_t c_code = ezytranspile_c(ast_root);
+  ezy_log("transpiled C code:\n%.*s", (int)c_code.len, c_code.ptr);
+
+  ezyparse_arena_clear();
   free(buffer);
   return 0;
 }

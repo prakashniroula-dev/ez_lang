@@ -1,7 +1,6 @@
 #if !defined(ezy_ast_typ_h)
 #define ezy_ast_typ_h
 
-
 enum ezy_ast_datatype_typ {
   ezy_ast_dt_invalid = 0,
 
@@ -35,29 +34,18 @@ enum ezy_ast_datatype_typ {
   ezy_ast_dt_function,
 };
 
-enum ezy_ast_literal_typ {
-  ezy_ast_literal_invalid = 0,
-  ezy_ast_literal_int64,
-  ezy_ast_literal_uint64,
-  ezy_ast_literal_float64,
-  ezy_ast_literal_char,
-  ezy_ast_literal_string,
-  ezy_ast_literal_bool,
-  ezy_ast_literal_null,
-  ezy_ast_literal_array,
-  ezy_ast_literal_struct
-};
-
 enum ezy_ast_node_typ {
   ezy_ast_node_invalid = 0,
   ezy_ast_node_error,
   ezy_ast_node_datatype,
+  ezy_ast_node_variable_decl,
   ezy_ast_node_variable,
   ezy_ast_node_function,
   ezy_ast_node_struct,
   ezy_ast_node_union,
   ezy_ast_node_literal,
   ezy_ast_node_call,
+  ezy_ast_node_binop,
   ezy_ast_node_stmt,
 };
 

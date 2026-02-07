@@ -17,6 +17,10 @@
   __VA_ARGS__ \
 )
 
+#define ezy_log_raw(...) fprintf(stderr, \
+  __VA_ARGS__ \
+)
+
 #define ezy_log_warn(...) fprintf(stderr, \
   "\n![ezy_warn] " ezy__log_info() \
   __VA_ARGS__ \

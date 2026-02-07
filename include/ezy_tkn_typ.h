@@ -12,7 +12,6 @@ enum ezy_kw_typ
   ezy_kw_type,
   ezy_kw_struct,
   ezy_kw_union,
-  ezy_kw_void,
   ezy_kw_fn,
   ezy_kw_return
 };

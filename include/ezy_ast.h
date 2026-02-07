@@ -33,6 +33,11 @@ struct ezy_ast_datatype_t {
   } ext;
 };
 
+struct ezy_ast_args_t {
+  ezy_cstr_t name;
+  struct ezy_ast_datatype_t typ;
+};
+
 struct ezy_ast_array_t {
   bool dynamic;
   struct ezy_ast_datatype_t typ;
@@ -42,8 +47,7 @@ struct ezy_ast_array_t {
 
 struct ezy_ast_struct_t {
   size_t count;
-  struct ezy_ast_datatype_t *mem_typlist;
-  ezy_cstr_t *mem_names;
+  struct ezy_ast_args_t* members;
 };
 
 struct ezy_ast_union_t {
@@ -55,18 +59,19 @@ struct ezy_ast_function_t {
   ezy_cstr_t name;
   struct ezy_ast_datatype_t return_typ;
   size_t param_count;
-  ezy_cstr_t *param_names;
-  struct ezy_ast_datatype_t *param_typlist;
+  
+  struct ezy_ast_args_t* params;
   struct ezy_ast_node_t *body;
 };
 
 struct ezy_ast_variable_t {
   ezy_cstr_t name;
   struct ezy_ast_datatype_t typ;
+  struct ezy_ast_node_t* value;
 };
 
 struct ezy_ast_literal_t {
-  enum ezy_ast_literal_typ typ;
+  enum ezy_ast_datatype_typ typ;
   union {
     int64_t t_int64;
     uint64_t t_uint64;
@@ -96,10 +101,17 @@ struct ezy_ast_node_error_t {
   ezy_tkn_t err_token;
 };
 
+struct ezy_ast_binop_t {
+  enum ezy_op_typ operator;
+  struct ezy_ast_node_t* left;
+  struct ezy_ast_node_t* right;
+};
+
 typedef struct ezy_ast_node_t {
   enum ezy_ast_node_typ type;
   union {
     // smaller.. so keep by value
+    struct ezy_ast_binop_t n_binop;
     struct ezy_ast_datatype_t n_datatype;
     struct ezy_ast_variable_t n_variable;
     struct ezy_ast_literal_t n_literal; 
@@ -111,7 +123,7 @@ typedef struct ezy_ast_node_t {
     struct ezy_ast_union_t* n_union;
     struct ezy_ast_call_t* n_call;
   } data;
-  ezy_ast_node_t* next;
+  struct ezy_ast_node_t* next;
 } ezy_ast_node_t;
 
 #endif // ezy_ast_h
