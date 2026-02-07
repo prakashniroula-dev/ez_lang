@@ -27,14 +27,6 @@ typedef struct
   const char* ptr;
 } ezy_tkn_t;
 
-// /* Basic lexers */
-// struct ezy_tkn ezy_lex_keyword(const char **ptr);
-// struct ezy_tkn ezy_lex_number(const char **ptr);
-// struct ezy_tkn ezy_lex_opbol(const char **ptr);
-
-// void ezy_skip_whitespace(const char **ptr);
-// struct ezy_token ezy_next_token(const char **ptr);
-
 void ezylex_start(const char*);
 ezy_tkn_t ezylex_peek_tkn(size_t);
 void ezylex_consume_tkn(size_t);

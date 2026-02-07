@@ -4,21 +4,33 @@
 #include <ezy_parser_arena.h>
 #include <string.h>
 
+// internal error struct
 struct ezyparse_error
 {
   const char *msg;
   ezy_tkn_t last_tkn;
 };
 
-#define ezyparse_typelist(...)       \
-  (enum ezy_tkn_typ[]){__VA_ARGS__}, \
-      (sizeof((enum ezy_tkn_typ[]){__VA_ARGS__}) / sizeof(enum ezy_tkn_typ)) * /
+// Declarations of helper functions
+static inline bool ezyparse_expect(ezy_tkn_t tkn, enum ezy_tkn_typ type);
+static inline bool ezyparse_match(ezy_tkn_t tkn, enum ezy_tkn_typ type);
 
-// for easy parsing.. define easy way to peek token
+// Declarations of parsing functions
+static struct ezyparse_error ezyparse_parse_datatype(struct ezy_ast_datatype_t *dest);
+static struct ezyparse_error ezyparse_parse_parameter_list(struct ezy_ast_args_t **dest_params, size_t *dest_count);
+static struct ezyparse_error ezyparse_parse_expression(ezy_ast_node_t **dest);
+static struct ezyparse_error ezyparse_parse_decl(ezy_ast_node_t **dest);
+static struct ezyparse_error ezyparse_parse_statement(struct ezy_ast_function_t *func_node, ezy_ast_node_t **dest);
+static struct ezyparse_error ezyparse_parse_function(ezy_ast_node_t **dest);
+static ezy_ast_node_t* ezyparse_parse_pratt_expr(int min_prec);
+
+// helper macros for token handling
 #define tok(n) ezylex_peek_tkn(n)
 #define consume(n) ezylex_consume_tkn(n)
 
-static bool ezyparse_expect(ezy_tkn_t tkn, enum ezy_tkn_typ type)
+// =========== Helper functions ===========
+
+static inline bool ezyparse_expect(ezy_tkn_t tkn, enum ezy_tkn_typ type)
 {
   if (tkn.type == type)
     return true;
@@ -31,23 +43,7 @@ static inline bool ezyparse_match(ezy_tkn_t tkn, enum ezy_tkn_typ type)
   return tkn.type == type;
 }
 
-static inline bool ezyparse_match_oneof(ezy_tkn_t tkn, const enum ezy_tkn_typ typlist[], int n)
-{
-  for (int i = 0; i < n; i++)
-  {
-    if (tkn.type == typlist[i])
-      return true;
-  }
-  return false;
-}
-
-// declare all parsing functions
-static struct ezyparse_error ezyparse_parse_datatype(struct ezy_ast_datatype_t *dest);
-static struct ezyparse_error ezyparse_parse_parameter_list(struct ezy_ast_args_t **dest_params, size_t *dest_count);
-static struct ezyparse_error ezyparse_parse_expression(ezy_ast_node_t **dest);
-static struct ezyparse_error ezyparse_parse_decl(ezy_ast_node_t **dest);
-static struct ezyparse_error ezyparse_parse_statement(struct ezy_ast_function_t *func_node, ezy_ast_node_t **dest);
-static struct ezyparse_error ezyparse_parse_function(ezy_ast_node_t **dest);
+// ========== Parsing functions ===========
 
 static struct ezyparse_error ezyparse_parse_datatype(struct ezy_ast_datatype_t *dest)
 {
@@ -307,18 +303,14 @@ static enum ezy_pratt_prec ezyparse_get_token_prec(ezy_tkn_t tkn)
       return ezy_pratt_prec_product;
     case ezy_op_brac_small_l:
       return ezy_pratt_prec_call;
-    case ezy_op_semicolon:
-      return ezy_pratt_prec_lowest;
     default:
-      return ezy_pratt_prec_lowest;
+      return ezy_pratt_prec_lowest - 1;
     }
   }
-  return ezy_pratt_prec_lowest;
+  return ezy_pratt_prec_lowest - 1;
 }
 
-static ezy_ast_node_t* ezyparse_pratt_expr(int min_prec);
-
-static ezy_ast_node_t* ezyparse_pratt_prefix()
+static ezy_ast_node_t* ezyparse_parse_pratt_prefix()
 {
   ezy_tkn_t tkn = tok(0);
   if ( tkn.type == ezy_tkn_int64 ) {
@@ -386,7 +378,7 @@ static ezy_ast_node_t* ezyparse_pratt_prefix()
 
   if ( tkn.type == ezy_tkn_operator && tkn.data.t_operator == ezy_op_brac_small_l ) {
     consume(1); // consume '('
-    ezy_ast_node_t *expr = ezyparse_pratt_expr(0);
+    ezy_ast_node_t *expr = ezyparse_parse_pratt_expr(ezy_pratt_prec_lowest);
     tkn = tok(0);
     if ( !ezyparse_expect(tkn, ezy_tkn_operator) || tkn.data.t_operator != ezy_op_brac_small_r ) {
       ezy_log_warn("Expected ')' after expression");
@@ -400,7 +392,7 @@ static ezy_ast_node_t* ezyparse_pratt_prefix()
   return NULL;
 }
 
-static ezy_ast_node_t* ezyparse_pratt_postfix(ezy_ast_node_t* left, int prec) {
+static ezy_ast_node_t* ezyparse_parse_pratt_postfix(ezy_ast_node_t* left, int prec) {
   ezy_tkn_t tkn = tok(0);
 
   if ( tkn.type == ezy_tkn_operator && tkn.data.t_operator == ezy_op_brac_small_l ) {
@@ -440,34 +432,63 @@ static ezy_ast_node_t* ezyparse_pratt_postfix(ezy_ast_node_t* left, int prec) {
   }
 
   // binary operator
-  ezy_ast_node_t *right = ezyparse_pratt_expr(prec + 1);
-
+  
   ezy_ast_node_t *node = ezyparse_arena_alloc(sizeof(ezy_ast_node_t));
   node->type = ezy_ast_node_binop;
   node->data.n_binop.operator = tkn.data.t_operator;
   node->data.n_binop.left = left;
+  
+  consume(1); // consume operator token
+
+  ezy_ast_node_t *right = ezyparse_parse_pratt_expr(prec + 1);
   node->data.n_binop.right = right;
   return node;
 }
 
-static ezy_ast_node_t* ezyparse_pratt_expr(int min_prec)
+static ezy_ast_node_t* ezyparse_parse_pratt_expr(int min_prec)
 {
   ezy_tkn_t tkn = tok(0);
   if ( tkn.type == ezy_tkn_operator && (tkn.data.t_operator == ezy_op_semicolon || tkn.data.t_operator == ezy_op_comma ) ) {
     return NULL;
   }
   
-  ezy_ast_node_t* left = ezyparse_pratt_prefix();
+  ezy_log("prec = %d, parse prefix tkn type: %d", min_prec, tkn.type);
+  if ( tkn.type == ezy_tkn_operator ) {
+    ezy_log("Operator token: %d", tkn.data.t_operator);
+  } else if ( tkn.type == ezy_tkn_identifier ) {
+    ezy_log("Identifier token: %.*s", tkn.data.t_identifier.len, tkn.data.t_identifier.ptr);
+  } else if ( tkn.type == ezy_tkn_int64 ) {
+    ezy_log("Int64 literal token: %lld", tkn.data.t_int64);
+  } else if ( tkn.type == ezy_tkn_uint64 ) {
+    ezy_log("Uint64 literal token: %llu", (unsigned long long)tkn.data.t_uint64);
+  } else if ( tkn.type == ezy_tkn_string ) {
+    ezy_log("String literal token: \"%.*s\"", tkn.data.t_string.len, tkn.data.t_string.ptr);
+  } else if ( tkn.type == ezy_tkn_float64 ) {
+    ezy_log("Float64 literal token: %f", tkn.data.t_float64);
+  }
+  ezy_ast_node_t* left = ezyparse_parse_pratt_prefix();
   tkn = tok(0);
   while (true)
   {
-    // ezy_log("In pratt expr loop, token type = %d", tkn.type);
     enum ezy_pratt_prec prec = ezyparse_get_token_prec(tkn);
+    ezy_log("on the way to postfix, token type: %d, operator: %d, precedence: %d", tkn.type, tkn.data.t_operator, prec);
+    if (prec < min_prec || min_prec < ezy_pratt_prec_lowest) break;
     
-    if (prec <= min_prec)
-      break;
-
-    left = ezyparse_pratt_postfix(left, prec);
+    ezy_log("prec = %d, min_prec = %d, parse postfix tkn type: %d", prec, min_prec, tkn.type);
+    if ( tkn.type == ezy_tkn_operator ) {
+      ezy_log("Operator token: %d", tkn.data.t_operator);
+    } else if ( tkn.type == ezy_tkn_identifier ) {
+      ezy_log("Identifier token: %.*s", tkn.data.t_identifier.len, tkn.data.t_identifier.ptr);
+    } else if ( tkn.type == ezy_tkn_int64 ) {
+      ezy_log("Int64 literal token: %lld", tkn.data.t_int64);
+    } else if ( tkn.type == ezy_tkn_uint64 ) {
+      ezy_log("Uint64 literal token: %llu", (unsigned long long)tkn.data.t_uint64);
+    } else if ( tkn.type == ezy_tkn_string ) {
+      ezy_log("String literal token: \"%.*s\"", tkn.data.t_string.len, tkn.data.t_string.ptr);
+    } else if ( tkn.type == ezy_tkn_float64 ) {
+      ezy_log("Float64 literal token: %f", tkn.data.t_float64);
+    }
+    left = ezyparse_parse_pratt_postfix(left, prec);
     tkn = tok(0);
   }
 
@@ -478,68 +499,13 @@ static struct ezyparse_error ezyparse_parse_expression(ezy_ast_node_t **dest)
 {
   ezy_tkn_t tkn = tok(0);
   ezy_log("Initial token type : %d", tkn.type);
-  ezy_ast_node_t* expr = ezyparse_pratt_expr(ezy_pratt_prec_lowest);
+  ezy_ast_node_t* expr = ezyparse_parse_pratt_expr(ezy_pratt_prec_lowest);
   if (expr == NULL) {
     return (struct ezyparse_error){.msg = "Failed to parse expression", .last_tkn = tok(0)};
   }
   *dest = expr;
   return (struct ezyparse_error){.msg = NULL, .last_tkn = tok(0)};
 }
-
-// static struct ezyparse_error ezyparse_parse_expression(ezy_ast_node_t **dest)
-// {
-//   ezy_tkn_t tkn = tok(0);
-
-//   // implement basic function call & literal parsing for now
-  
-//   if (tkn.type == ezy_tkn_identifier) {
-//     ezy_tkn_t tkn2 = tok(1);
-//     if ( tkn2.type == ezy_tkn_operator && tkn2.data.t_operator == ezy_op_brac_small_l ) {
-//       // function call
-//       ezy_ast_node_t *call_node = ezyparse_arena_alloc(sizeof(ezy_ast_node_t));
-//       struct ezy_ast_call_t *call_data = ezyparse_arena_alloc(sizeof(struct ezy_ast_call_t));
-//       *dest = call_node;
-
-//       call_node->type = ezy_ast_node_call;
-//       call_node->data.n_call = call_data;
-
-//       call_data->func_name = tkn.data.t_identifier;
-
-//       consume(1); // consume function name
-//       struct ezyparse_error err = ezyparse_parse_call_args(&call_data->args, &call_data->arg_count);
-//       if (err.msg != NULL)
-//       {
-//         return err;
-//       }      
-//     }
-//   } else if (tkn.type == ezy_tkn_int64) {
-//     ezy_ast_node_t *lit_node = ezyparse_arena_alloc(sizeof(ezy_ast_node_t));
-//     lit_node->type = ezy_ast_node_literal;
-//     lit_node->data.n_literal.typ = ezy_ast_dt_int64;
-//     lit_node->data.n_literal.value.t_int64 = tkn.data.t_int64;
-//     *dest = lit_node;
-//     consume(1); // consume literal token
-//   } else if (tkn.type == ezy_tkn_string) {
-//     ezy_ast_node_t *lit_node = ezyparse_arena_alloc(sizeof(ezy_ast_node_t));
-//     lit_node->type = ezy_ast_node_literal;
-//     lit_node->data.n_literal.typ = ezy_ast_dt_string;
-//     lit_node->data.n_literal.value.t_string = tkn.data.t_string;
-//     *dest = lit_node;
-//     consume(1); // consume literal token
-//   } else if (tkn.type == ezy_tkn_float64) {
-//     ezy_ast_node_t *lit_node = ezyparse_arena_alloc(sizeof(ezy_ast_node_t));
-//     lit_node->type = ezy_ast_node_literal;
-//     lit_node->data.n_literal.typ = ezy_ast_dt_float64;
-//     lit_node->data.n_literal.value.t_float64 = tkn.data.t_float64;
-//     *dest = lit_node;
-//     consume(1); // consume literal token
-//   }
-//   else {
-//     return (struct ezyparse_error){.msg = "Unsupported expression type", .last_tkn = tkn};
-//   }
-
-//   return (struct ezyparse_error){.msg = NULL, .last_tkn = tkn};
-// }
 
 static struct ezyparse_error ezyparse_parse_decl(ezy_ast_node_t **dest)
 {

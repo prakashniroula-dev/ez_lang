@@ -9,4 +9,9 @@ typedef struct
   size_t len;
 } ezy_cstr_t;
 
+typedef struct ezy_multistr_t {
+  ezy_cstr_t str;
+  struct ezy_multistr_t *next;
+} ezy_multistr_t;
+
 #endif // ezy_typ_h

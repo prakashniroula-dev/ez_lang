@@ -29,6 +29,9 @@ void print_ast_node(ezy_ast_node_t* node, int indent) {
         case ezy_ast_dt_int64:
           ezy_log_raw("int64: %lld", node->data.n_literal.value.t_int64);
           break;
+        case ezy_ast_dt_uint64:
+          ezy_log_raw("uint64: %llu", (unsigned long long)node->data.n_literal.value.t_uint64);
+          break;
         case ezy_ast_dt_string:
           ezy_log_raw("string: \"%.*s\"", node->data.n_literal.value.t_string.len, node->data.n_literal.value.t_string.ptr);
           break;
@@ -38,6 +41,24 @@ void print_ast_node(ezy_ast_node_t* node, int indent) {
         default:
           ezy_log_raw("other type=%d", node->data.n_literal.typ);
           break;
+      }
+      ezy_log_raw(")\n");
+      break;
+    case ezy_ast_node_binop:
+      ezy_log_raw("BinaryOperator(operator: %d, left: \n", node->data.n_binop.operator);
+      if (node->data.n_binop.left != NULL) {
+        print_ast_node(node->data.n_binop.left, indent + 1);
+      }
+      if ( node-> data.n_binop.right != NULL )
+      {
+        for (int i = 0; i < indent * 2; i++) {
+          ezy_log_raw("  ");
+        }
+        ezy_log_raw(", right: \n");
+        print_ast_node(node->data.n_binop.right, indent + 1);
+      }
+      for (int i = 0; i < indent * 2; i++) {
+        ezy_log_raw("  ");
       }
       ezy_log_raw(")\n");
       break;
@@ -108,10 +129,15 @@ int main(int argc, const char** argv) {
   print_ast_node(ast_root, 0);
 
   ezy_log("transpiling to C...");
-  ezy_cstr_t c_code = ezytranspile_c(ast_root);
-  ezy_log("transpiled C code:\n%.*s", (int)c_code.len, c_code.ptr);
+  ezy_multistr_t* c_code = ezytranspile_c(ast_root);
 
-  ezyparse_arena_clear();
+  ezy_log("Transpiled C code:\n");
+  while (c_code != NULL) {
+    ezy_log_raw("%.*s", (int)c_code->str.len, c_code->str.ptr);
+    c_code = c_code->next;
+  }
+
+  ezyparse_arena_clear(); // clear all parser allocations at once
   free(buffer);
   return 0;
 }

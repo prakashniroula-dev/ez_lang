@@ -3,6 +3,6 @@
 
 #include <ezy_ast.h>
 
-ezy_cstr_t ezytranspile_c(ezy_ast_node_t *node);
+ezy_multistr_t* ezytranspile_c(ezy_ast_node_t *node);
 
 #endif // ezy_transpile_c_h

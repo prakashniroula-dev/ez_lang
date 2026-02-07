@@ -10,7 +10,6 @@
 // Union types
 // Variables
 
-
 #if !defined(ezy_ast_h)
 #define ezy_ast_h
 #include <ezy_lexer.h>

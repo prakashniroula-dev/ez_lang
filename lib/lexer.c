@@ -4,12 +4,14 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include <inttypes.h>
 
 #define ezylex_null_data ((union ezy_tkn_unit_t){.t_int64 = 0})
 #define ezylex_blank_tok(t) ((ezy_tkn_t){.type = t, .data = ezylex_null_data})
 #define ezylex_tknbuf_limit 16
 
 static ezy_tkn_t ezylex_tknbuf[ezylex_tknbuf_limit];
+static ezy_tkn_t ezylex_last_tok;
 static const char *ezylex_tknbuf_headptr = NULL;
 static size_t ezylex_tknbuf_head = 0;
 static size_t ezylex_tknbuf_tail = 0;
@@ -36,6 +38,17 @@ static void ezylex_advance_pos(const char *start, const char *end)
     }
     s++;
   }
+}
+
+ezy_tkn_t ezylex_peek_tkn_reverse(size_t n)
+{
+  if (n >= ezylex_tknbuf_count)
+  {
+    ezy_log_warn("Attempt to peek back %zu tokens, but only %zu tokens in buffer", n, ezylex_tknbuf_count);
+    return ezylex_blank_tok(ezy_tkn_dummy);
+  }
+  size_t idx = (ezylex_tknbuf_head + ezylex_tknbuf_limit - 1 - n) % ezylex_tknbuf_limit;
+  return ezylex_tknbuf[idx];
 }
 
 void ezylex_push_tkn(ezy_tkn_t tk)
@@ -107,21 +120,35 @@ ezy_tkn_t ezylex_number(const char **ptr)
   const char *start = p;
 
   bool isFloat = false;
+  bool isNegative = false;
   uint8_t base = 10;
   ezy_tkn_t tkn = ezylex_blank_tok(ezy_tkn_invalid);
 
   if (ezylex_str_startsw(p, "0b"))
   {
     p += 2;
-    *ptr += 2;
     base = 2;
   }
   else if (ezylex_str_startsw(p, "0x"))
   {
     p += 2;
-    *ptr += 2;
     base = 16;
   }
+
+  if (*p == '-' || *p == '+')
+  {
+    if ( base != 10 )
+    {
+      // ezy_log_error("invalid leading '+' or '-' for non-decimal number literal, (line: %u, col: %u)", ezylex_line, ezylex_col);
+      tkn.data.t_string.ptr = "invalid leading '+' or '-' for non-decimal number literal";
+      *ptr = p;
+      return tkn;
+    }
+    isNegative = *p == '-';
+    p++;
+  }
+
+  *ptr = p;
 
   while (*p)
   {
@@ -167,6 +194,10 @@ ezy_tkn_t ezylex_number(const char **ptr)
   if (isFloat)
   {
     double v = strtod(*ptr, &end);
+    if (isNegative)
+    {
+      v = -v;
+    }
     if (end != p)
     {
       // ezy_log_error("invalid float literal, (line: %u, col: %u)", ezylex_line, ezylex_col);
@@ -181,7 +212,15 @@ ezy_tkn_t ezylex_number(const char **ptr)
   {
     if (base == 10)
     {
-      unsigned long long v = strtoull(*ptr, &end, 10);
+      // ezy_log("got to ptr = %s, isNegative: %d", *ptr, isNegative);
+      uint64_t v = _strtoui64(*ptr, &end, 10);
+      if ( isNegative && v > INT64_MAX + 1ULL )
+      {
+        ezy_log_error("invalid integer literal, value too small:" "%" PRIu64, v);
+        tkn.data.t_string.ptr = "invalid integer literal, value too small to fit in int64";
+        *ptr = p;
+        return tkn;
+      }
       if (end != p)
       {
         // ezy_log_error("invalid integer literal, (line: %u, col: %u)", ezylex_line, ezylex_col);
@@ -190,7 +229,12 @@ ezy_tkn_t ezylex_number(const char **ptr)
         return tkn;
       }
       tkn = ezylex_blank_tok(ezy_tkn_uint64);
-      tkn.data.t_uint64 = v;
+      if ( isNegative ) {
+        tkn.type = ezy_tkn_int64;
+        tkn.data.t_int64 = -(int64_t)v;
+      } else {
+        tkn.data.t_uint64 = v;
+      }
     }
     else
     {
@@ -546,8 +590,15 @@ ezy_tkn_t ezylex_next_tkn()
   if (c == 0)
     return ezylex_blank_tok(ezy_tkn_eof);
 
+  bool isNum = isdigit((uint8_t)c) || (c == '.' && isdigit((uint8_t)c1));
+  // handle leading '+' or '-' for numbers
+  // (only if they are unary operators, i.e., preceded by another operator)
+  isNum |= c == '-' && isdigit(c1) && ezylex_last_tok.type == ezy_tkn_operator;
+  isNum |= c == '+' && isdigit(c1) && ezylex_last_tok.type == ezy_tkn_operator;
 
-  if (isdigit((uint8_t)c) || (c == '.' && isdigit((uint8_t)c1)))
+  ezy_log("isNum: %d, c: '%c', c1: '%c'", isNum, c, c1);
+
+  if (isNum)
   {
     tkn = ezylex_number(&p);
     ezylex_tknbuf_headptr = p;
@@ -601,6 +652,8 @@ ezy_tkn_t ezylex_next_tkn()
 
   tkn = ezylex_operator(&p);
   ezylex_tknbuf_headptr = p;
+
+  ezylex_last_tok = tkn;
 
   return tkn;
 }
