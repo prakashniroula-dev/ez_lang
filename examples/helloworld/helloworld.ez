@@ -6,7 +6,7 @@ author : Prakash Niroula
 */
 
 
-fn void main(float a, int void) {
+fn void main(float a, int arg1) {
   // hello this is comment
   const x = "Hello World";
   let int n = 8 + 4 / -6 * pow(2, 4);
